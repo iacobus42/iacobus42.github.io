@@ -1,0 +1,258 @@
+---
+layout: post
+title: Parallel Simulation of Heckman Selection Model
+date: 2015-04-23
+niceDate: Apr 23, 2015
+lede: One of the major problems in observational research is estimating the true treatment effect. This is not hard when the selection and outcome processes are uncorrelated and all relevant variables are observed and properly controlled for. However, when the selection and outcome are correlated and it is not possible to remove this correlation on the basis of the observables, biased estimation results. The Heckman selection model affords one way of dealing with and minimizing this introduced bias. A parallel R based simulation of a Heckman style estimator compared to least squares and propensity scores highlights the potential utility of this framework.  
+tags: statistics r methods heckman
+rstats: TRUE
+id: 20152304
+hide: TRUE
+---
+
+<h1>Parallel Simulation of Heckman Selection Model</h1>
+
+<p>One of the, if not <em>the</em>, fundamental problems in observational data analysis is the estimation of the value of the unobserved choice. If the <span class="math">\(i^{\text{th}}\)</span> unit chooses the value of <span class="math">\(t\)</span> on the basis of some factors <span class="math">\(\mathbf{x_i}\)</span>, which may include the <span class="math">\(E(u_i(t))\)</span> for that unit, comparing the outcome <span class="math">\(\mathbf{y}\)</span> on a set where <span class="math">\(t = 1\)</span> and a set where <span class="math">\(t = 0\)</span> is unlikely to provide valid inference.</p>
+<p>Randomized controlled trials get rid of this problem by setting the <span class="math">\(Pr(t_i = 1)\)</span> to be equal and independent of the values of <span class="math">\(x_i\)</span> for all <span class="math">\(i\)</span>. This provides a good estimation of the value of <span class="math">\(t\)</span>.</p>
+<p>But randomized controlled trials just aren’t reasonable for any questions, if they are even possible. And so observational data analysis is critical but it must first find some way to control for everything in <span class="math">\(\mathbf{x_i}\)</span> while to compute an unbiased and valid estimate of <span class="math">\(E(u_i(t == 1)) - E(u_i(t == 0))\)</span>.</p>
+<p>This can be straight-froward. It is easy to deal with outcome modifiers or selection modifiers with propensity scores or regression. However, both of these methods breakdown when faced with correlation between the error in the selection equation and the outcomes equation.</p>
+
+<h2>Heckman Model</h2>
+<p>The Heckman Model (aka Heckman correction/Heckit) treats this correlation between the errors as a form of mis-specification and omitted variable bias. If we could observe the behavioral factors that feed into the error terms, this would not be a problem. Alas, that is generally not possible.</p>
+<p>What the Heckman Model suggests is that for each person we have</p>
+<p><span class="math">\[t_i^* = \mathbf{z_i} \alpha + \epsilon_i\]</span></p>
+<p>and</p>
+<p><span class="math">\[y_{u, i}^* = \mathbf{x_i} \beta_u + \eta_{u, i}\]</span> <span class="math">\[y_{t, i}^* = \mathbf{x_i} \beta_t + \eta_{t, i}\]</span></p>
+<p>The first equation gives the likelihood of being given treatment <span class="math">\(t\)</span>, this should similar similar to propensity score models. The second set of equations denote the outcomes that would be realized if a patient were given <span class="math">\(t\)</span>. However, we can’t observe both outcomes on the same unit (what Rubin and Holland call the fundamental problem of casual inference).</p>
+<p>Instead, unless we have randomized <span class="math">\(t\)</span>, we observe</p>
+<p><span class="math">\[t_i = \begin{cases} 0 \text{ if } \mathbf{z_i} \alpha + \epsilon_i &lt; 0 \\
+                      1 \text{ if } \mathbf{z_i} \alpha + \epsilon_i \geq 0 
+        \end{cases}\]</span></p>
+<p>and from <span class="math">\(t_i\)</span>,</p>
+<p><span class="math">\[y_i = \begin{cases} y_{u, i}^* \text{ if } t_i = 0 \\
+                      y_{t, u}^* \text{ if } t_i = 1 
+        \end{cases}\]</span></p>
+<p>The value <span class="math">\(y\)</span> is the realized value and its dependence on <span class="math">\(t\)</span> is clear.</p>
+<p>Still, this isn’t a real problem. It can all be solved with regression or propensity scores or similar analysis. The problem comes in the error terms. Basically, often times problems present with a correlation between the error terms in the selection and outcome equations. We could write</p>
+<p><span class="math">\[\left(\begin{array}{c}
+          \epsilon \\
+          \eta_u \\
+          \eta_t \\
+        \end{array}
+  \right)
+  = N\left( 
+      \left(\begin{array}{c}0\\ 0\\ 0\\ \end{array}\right),
+      \left(\begin{array}{ccc} 
+            1 &amp; \rho_1 \sigma_1 &amp; \rho_2 \sigma_2 \\
+            \rho_1 \sigma_1 &amp; \sigma_2^2 &amp;\rho_{12}\sigma_1 \sigma_2 \\
+            \rho_2 \sigma_2 &amp; \rho_{12}\sigma_1\sigma_2 &amp; \sigma_2^2 
+            \end{array}
+      \right)
+    \right)\]</span></p>
+<p>and whenever both <span class="math">\(\rho_1\)</span> and <span class="math">\(\rho_2\)</span> are not 0, there will be poor estimation of <span class="math">\(E(y_t^*) - E(y_u^*)\)</span>.</p>
+<p>What the Heckman model advances in the idea that <span class="math">\(E(y_u | \mathbf{x} = \mathbf{x_i}, \mathbf{z} = \mathbf{z_i}, t = 0)\)</span> can be broken down into two parts. Rather simply, the expectation breaks down into the true expectation of the unobserved value of <span class="math">\(y_u^*\)</span> plus the expected value of <span class="math">\(\eta_u\)</span> conditional on <span class="math">\(t_i = 0\)</span>:</p>
+<p><span class="math">\[E(y_u | \mathbf{x} = \mathbf{x_i}, \mathbf{z} = \mathbf{z_i}, t = 0) = E(y_u^*) + E(\eta_u | t_i = 0)\]</span></p>
+<p>Since <span class="math">\(t_i = 0\)</span> if <span class="math">\(\mathbf{z_i} \alpha + \epsilon_i\)</span>, we can expand this to</p>
+<p><span class="math">\[E(y_u | \mathbf{x} = \mathbf{x_i}, \mathbf{z} = \mathbf{z_i}, t = 0) + E(\eta_u | \mathbf{z_i} \alpha + \epsilon &lt; 0)\]</span></p>
+<p>Looking back towards the top, we see that <span class="math">\(E(y_u^*) = \mathbf{x_i} \beta_u\)</span>. Replacing that expectation in the expression yields</p>
+<p><span class="math">\[E(y_u | \mathbf{x} = \mathbf{x_i}, \mathbf{z} = \mathbf{z_i}, t = 0) = \mathbf{x_i} \beta_u + E(\eta_u | \mathbf{z_i} \alpha + \epsilon &lt; 0)\]</span> <span class="math">\[E(y_u | \mathbf{x} = \mathbf{x_i}, \mathbf{z} = \mathbf{z_i}, t = 0) = \mathbf{x_i} \beta_u + E(\eta_u | \epsilon &lt; -\mathbf{z_i} \alpha)\]</span></p>
+<p>It can be shown that because <span class="math">\(\eta_u\)</span> and <span class="math">\(\epsilon\)</span> are distributed according to a multivariate truncated normal distribution that</p>
+<p><span class="math">\[E(\eta_u | \epsilon &lt; -\mathbf{z_i} \alpha) = \rho_1 \sigma_1 \lambda(-\mathbf{z_i} \alpha) + \epsilon_u\]</span></p>
+<p>The expression <span class="math">\(\lambda(-\mathbf{x_i} \alpha)\)</span> says to evaluate the inverse Mill’s ratio at the value of <span class="math">\(-\mathbf{x_i} \alpha\)</span>. The inverse Mill’s ratio for <span class="math">\(x\)</span> is given by <span class="math">\(\frac{\phi(x)}{\Phi(x)}\)</span> where <span class="math">\(\phi()\)</span> and <span class="math">\(\Phi()\)</span> are the standard normal pdf and cdf functions, respectively.</p>
+<p>The proof of this is not overly complicated. The simplest way is to consider a recursive definition of the moments for a truncated normal and then the consideration that the truncated normal can be generalized to the bi variate truncated normal with a multiplication by <span class="math">\(\rho_1\)</span>. Fully detailing the proof would bog down in integration by parts and algebra nobody cares to see.</p>
+<p>The exact same process can be repeated for the case of <span class="math">\(y_t\)</span> leading to the equations:</p>
+<p><span class="math">\[\begin{eqnarray}
+E(y_u |  \mathbf{x} = \mathbf{x_i}, \mathbf{z} = \mathbf{z_i}, t = 0) &amp;=&amp; \mathbf{x_i} \beta_u - \rho_1 \sigma_1 \lambda(-\mathbf{z_i} \alpha) + \epsilon_u \\
+E(y_t |  \mathbf{x} = \mathbf{x_i}, \mathbf{z} = \mathbf{z_i}, t = 1) &amp;=&amp; \mathbf{x_i} \beta_t + \rho_2 \sigma_2 \lambda(\mathbf{z_i} \alpha) + \epsilon_t
+\end{eqnarray}\]</span></p>
+<p>where <span class="math">\(\epsilon_u\)</span> and <span class="math">\(\epsilon_t\)</span> are random error uncorrelated with the selection model and a mean of zero.</p>
+<p>This equation can be estimated in two steps. The first bit, <span class="math">\(\lambda(-\mathbf{z_i}\alpha)\)</span> and <span class="math">\(\lambda(\mathbf{z_i} \alpha)\)</span> can both be estimated using a probit first stage:</p>
+<p><span class="math">\[E(Pr(t_i = 1)) = \Phi\left(\mathbf{z_i} \alpha \right)\]</span></p>
+<p>and the resulting Inverse Mill’s Ratio can be computed using these values and a sign depending on the observed value of <span class="math">\(t\)</span>.</p>
+<p>Once this variable is estimated, the complete model can be estimated to find the effects of <span class="math">\(\mathbf{x_i}\)</span> as part of a second stage using least squares.</p>
+<p>Additionally (and perhaps better), the whole model can be estimated in a single stage using maximum likelihood. Heckman’s recommendations have historically been to estimate the model in two stages to provide starting values for a single stage ML estimator. The MLE is more sensitive to starting values compared to the two stage model and so it isn’t always best, but should be the first estimator considered.</p>
+
+<h2>Data Generation Details</h2>
+
+<h3>Motivation</h3>
+
+<p>Let’s set up a (very) simple simulated example of this problem.</p>
+<p>A disease of interest affects patients aged 65 to 85 uniformly and you want to estimating the effect of a new long-term treatment. The treatment’s benefit is not dependent on age but the probability of realizing the treatment is. The patient needs to be on the drug for an average of 10 years to realize a treatment effect (this is not totally unrealistic for some drugs such as statins). Formally, lets say that <span class="math">\(l\)</span> is the lag of the treatment effect and <span class="math">\(l \sim gamma(20, 2)\)</span>. That gives <span class="math">\(l\)</span> a mean of 10 and a variance of of 5. Some people respond early to the treatment and some respond late but 95% respond between 6 and 14 years after the treatment is started.</p>
+<p>What is of interest is that the expected life remaining decreases over this interval. If we use the <a href="http://www.ssa.gov/oact/STATS/table4c6.html">Social Security Tables</a> we can compute the number of years of expected life remaining by age, <span class="math">\(d\)</span>.</p>
+<p>Lets combine the remaining life and the distribution of <span class="math">\(l\)</span> to estimate the probability of living long enough to benefit from the treatment effect for the average person:</p>
+<pre class="r"><code>actTable &lt;- data.frame(age = seq(65, 85), 
+                      yearsRemaining = c(18.94, 18.18, 17.44, 16.70, 15.98, 
+                                        15.27, 14.57, 13.88, 13.21, 12.55, 
+                                        11.91, 11.29, 10.67, 10.09,  9.51,
+                                         8.94,  8.41,  7.88,  7.38,  6.91,
+                                         6.44))
+actTable$prTreatmentEffect &lt;- pgamma(actTable$yearsRemaining, 20, 2)
+ggplot(actTable, aes(x = age, y = prTreatmentEffect)) + 
+  geom_line() + 
+  scale_x_continuous(&quot;Age / Years&quot;) + 
+  scale_y_continuous(&quot;Expected Probability of Outliving Treatment Lag&quot;)</code></pre>
+<p><img src="../../../img/2015-04-23/fig1.png" width = 100%></p>
+<p>Of course, the expected probability of outliving the lag isn’t the same as a given person’s probability. So lets add some noise. I don’t want to move it too far in either direction but I do want a fair amount of error, so lets say</p>
+<p><span class="math">\[P(r \geq l)_i = \Phi \left(\Phi^{-1} \left[P(d_i \geq l) \right] + \epsilon_i \right)\]</span></p>
+<p>where <span class="math">\(\epsilon \sim N(0, 0.5^2)\)</span>, <span class="math">\(\Phi\)</span> is the standard normal CDF and <span class="math">\(\Phi^{-1}\)</span> is the inverse of the standard normal CDF (converting the probability to a Z-score). The same plot as above is made below but this time includes a shaded area denoting 95% sampling bounds about the mean.</p>
+<pre class="r"><code># using a probit style model for simplicity but logit or other adjustments are
+# equally valid
+actTable$z &lt;- qnorm(actTable$prTreatmentEffect)
+actTable$lb &lt;- pnorm(actTable$z - 2 * 0.5)
+actTable$ub &lt;- pnorm(actTable$z + 2 * 0.5)
+
+ggplot(actTable, aes(x = age, y = prTreatmentEffect, ymin = lb, ymax = ub)) + 
+  geom_line() + 
+  geom_ribbon(alpha = 0.25) + 
+  scale_x_continuous(&quot;Age / Years&quot;) + 
+  scale_y_continuous(&quot;Expected Probability of Outliving Treatment Lag&quot;) </code></pre>
+<p><img src="../../../img/2015-04-23/fig2.png" width = 100%></p>
+<p>Visually, this looks like a reasonable but not excessive amount of noise around the expected probability of success.</p>
+<p>The meaning of <span class="math">\(\epsilon\)</span> can be ascribed to random differences in willingness to accept the cost of the treatment. Even if you had a <span class="math">\(P(r \geq l)\)</span> very near zero, if the treatment had no cost (in dollars or side effects) it would always make sense to take the treatment as the expected value would be strictly <span class="math">\(&gt; 0\)</span>.</p>
+<p>But that isn’t how treatments work. They cost you (and the insurer) money. They cost you effort to take (even if that effort is just taking a pill). They cost you in the risk of side effects.</p>
+<p>So in this example, <span class="math">\(\epsilon\)</span> can be thought of as measuring the sensitivity to the cost or the preference for the chance that the drug works.</p>
+<p>It can also be thought of as patients sorting on their expected gain based on unobserved (and potentially unobservant to the researcher) factors. A patient who is really good about taking medications might take the medication because the cost of taking it is low. Same with the patient who is taking it because they are not worried about the side effects or believe they are worth the outcome.</p>
+<p>This is where the problem arises. Suppose the outcome model is simple:</p>
+<p><span class="math">\[y_i = 1 + t_i + \eta_i\]</span></p>
+<p>where <span class="math">\(y\)</span> is some outcome of interest, <span class="math">\(t\)</span> is treatment status and <span class="math">\(\eta\)</span> is the error term in the outcomes model. Suppose <span class="math">\(\eta \sim N(0, 2^2)\)</span>.</p>
+<p>As a general rule, people who take their medications regularly and who do not stop due to mild side effects are going to have the better outcomes. It seems likely then that <span class="math">\(\text{cor}(\epsilon, \eta) \neq 0\)</span>. Because the error term in the selection model was partly due to patients sorting on their expected ability to adhere and persist through side effects, it is not a stretch to imagine that the patients with larger values of <span class="math">\(\epsilon\)</span> will also have larger values of <span class="math">\(\eta\)</span> and likewise for smaller values.</p>
+
+<h3>Generating Test Sets</h3>
+<p>To recap, the selection model is</p>
+<p><span class="math">\[P(r \geq l)_i = \Phi \left(\Phi^{-1} \left[P(d_i \geq l) \right] + \epsilon_i \right)\]</span></p>
+<p>where <span class="math">\(\epsilon \sim N(0, 0.05^2)\)</span></p>
+<p>The outcomes are determined by</p>
+<p><span class="math">\[y = 1 + I_t + \eta\]</span></p>
+<p>where <span class="math">\(I_t\)</span> is an indicator for the patient having survived long enough to have treatment effects and <span class="math">\(\eta\)</span> is <span class="math">\(N(0, 2^2)\)</span>. The <span class="math">\(\rho_{\epsilon, \eta}\)</span> is set when the data is generated.</p>
+<p>The function <code>dataGen</code> puts this all together.</p>
+<pre class="r"><code>dataGen &lt;- function(cor, n = 1000, actuarialTable = actTable) {
+  require(dplyr)
+  require(MASS)
+  # generate uniform age values in the range of ages covered by the act tab
+  data &lt;- data.frame(
+    age = round(runif(n, min(actuarialTable$age), max(actuarialTable$age))))
+  # merge the data from the act tab and the generated ages
+  data &lt;- dplyr::select(actuarialTable, one_of(&quot;age&quot;, &quot;yearsRemaining&quot;)) %&gt;% 
+    inner_join(data, by = (&quot;age&quot; = &quot;age&quot;))
+  # compute the probability of living past treatment lag on average
+  data$prTreatmentEffect &lt;- pgamma(data$yearsRemaining, 20, 2)
+  # generate error terms, mvrnorm using sigma^2 
+  s1 &lt;- 0.5
+  s2 &lt;- 1
+  Sigma &lt;- diag(c(s1^2, s2^2))
+  # compute cov based on cor provided as input
+  Sigma[lower.tri(Sigma)] &lt;- cor * (s1) * (s2)
+  Sigma[upper.tri(Sigma)] &lt;- Sigma[lower.tri(Sigma)]
+  err &lt;- mvrnorm(n, c(0, 0), Sigma)
+  # assign treatment based on prTreatmentEffect + noise
+  data$treatment &lt;- rbinom(n, 1, 
+                           pnorm(qnorm(data$prTreatmentEffect) + err[, 1]))
+  # assign outcome according to a very simple model
+  data$outcome &lt;- 1 + data$treatment + err[, 2]
+  data
+}</code></pre>
+
+<h2>Simulation in Parallel</h2>
+<p>I’m going to generate test sets with values of <span class="math">\(\rho\)</span> ranging from -0.99 to 0.99 and I’m going to run 100 iterations on data generated at each of these levels. In each iteration, I’m going to compute the OLS estimator, the PS estimator and the Heckman MLE estimator.</p>
+<p>However,as this takes a fair bit of time to run and in interest of computation time, I’m going to use the <code>parallel</code> package and <code>parLapply</code> to do this computation.</p>
+<p>We need to nest <code>dataGen</code> inside the <code>pfit</code> function. Basically, a cluster is set of R jobs created by the <code>makeCluster</code> command. These jobs cannot “see” the same environment that you exist in but only what you pass them. In this case, it is easiest to pass them inside the function call.</p>
+<p>The function <code>pfit</code> looks like:</p>
+<pre class="r"><code>pfit &lt;- function(iter, r, n) {
+  dataGen &lt;- function(cor, n) {
+    # from above
+      ...
+  }
+  fit &lt;- function(r, n) {
+    # similar to above but this time call dataGen inside fit
+    require(dplyr)
+    require(sampleSelection)
+    require(Matching)
+    data &lt;- dataGen(r, n)
+    # regression estimator
+    linear &lt;- coef(lm(outcome ~ treatment, data = data))[2]
+    
+    # propensity scores (using Matching package)
+    model &lt;- glm(treatment ~ cut(age, breaks = 20), data = data, 
+                 family = binomial())$fitted.values
+    ps &lt;- Match(Y = data$outcome, Tr = data$treatment, X = model, ties = FALSE)$est
+    
+    # heckman mle
+    hmle &lt;- selection(data$t ~ cut(data$age, breaks = 20), 
+                      list(data$outcome ~ 1, data$outcome ~ 1))
+    hmle &lt;- coef(hmle)[24] - coef(hmle)[21]
+    
+    # results
+    return(c(linear, ps, hmle))
+  }  
+  results &lt;- replicate(iter, fit(r, n))
+}</code></pre>
+<p>Basically, <code>pfit</code> is passed arguments <code>r</code> and <code>n</code> where <code>r</code> is the correlation coefficient between the error in the selection model and outcome model. At this time, I’m forcing the errors for both outcome models and the correlation between those errors and the selection model to be equal, although in practice this need not be the case. As normal, <code>n</code> is the number of observations to generate.</p>
+<p><code>fit</code> then uses <code>dataGen</code> to generate <code>n</code> observations with <code>r</code> correlation and estimates a linear model of the outcome on treatment, a PS estimate of the treatment effect (using <code>Match</code> from the <code>Matching</code> package) and then estimates the Heckman selection model (aka Tobit-5) using the <code>selection</code> function of the <code>sampleSelection</code> package (as opposed to doing it as a two stage and doing it by hand).</p>
+<p>The last line calls <code>fit</code> <code>iter</code> number of times using <code>replicate</code> and returns the data as a matrix.</p>
+<p>To work with <code>parLapply</code> I wrote a second wrapper function <code>parSim.</code></p>
+<pre class="r"><code>parSim &lt;- function(cl, iter, r, n) {
+  require(parallel)
+  nw &lt;- length(cl)
+  results &lt;- simplify2array(do.call(list,
+                                    parLapply(cl,
+                                              rep(iter / nw, nw),
+                                              fun = pfit,
+                                              r = r, 
+                                              n = n)))
+  results
+}</code></pre>
+<p>This function takes a cluster <code>cl</code> and divides the <code>iter</code> iterations over the number of unique jobs in <code>cl</code> and runs <code>fit</code> the correct number of times on each job using <code>parLapply</code>. The <code>simplify2array</code> is simply to make the data easier to manipulate.</p>
+<p>The results returned by <code>parSim</code> take the form of an array with each row being an estimator, each column being an iteration and each “slice” coming from one of the jobs.</p>
+<p>I generated 100 replicates at 198 correlation coefficient values between <span class="math">\(-0.99\)</span> and <span class="math">\(0.99\)</span> (e.g., steps of <span class="math">\(0.01\)</span>). While <code>parSim</code> does give about a 3-fold increase when the cluster is of size 4, it still takes about 60-90 minutes to run for the 198 values of <span class="math">\(\rho\)</span> tested.</p>
+<pre class="r"><code>results &lt;- NULL
+s &lt;- Sys.time()
+for (r in seq(-0.99, 0.99, 0.01)) {
+ print(r)
+ run &lt;- parSim(cl, iter = 100, r = r, n = 2000) 
+ run &lt;- data.frame(estimator = rep(c(&quot;LS&quot;, &quot;PS&quot;, &quot;HML&quot;), 100),
+                   estimate = as.numeric(run), 
+                   r = r, n = 2000)
+ results &lt;- rbind(results, run)
+}
+e &lt;- Sys.time()</code></pre>
+
+<h2>Analysis</h2>
+<p>First thing, first: see how the estimators perform as a function of the set value of <span class="math">\(\rho\)</span>:</p>
+<pre class="r"><code>ggplot(results, aes(x = r, y = estimate, color = estimator)) + 
+  geom_point(alpha = 0.25) + 
+  scale_x_continuous(&quot;Correlation&quot;) + 
+  scale_y_continuous(&quot;Estimate (True Value = 1)&quot;)</code></pre>
+<p><img src="../../../img/2015-04-23/fig3.png" width = 100%></p>
+<p>Generally, no big surprises here — the effect of the “omitted variable bias” in the regression and propensity scores models, given that neither accounts for the non-zero correlation is unsurprising and has the expected signs.</p>
+<p>When the correlation is zero or nearly zero, all of the models have similar performance with estimates about 1. However, as the correlation moves away from zero, this is no longer the case. As the correlation between the error in the selection and outcome equations increases, the effect estimate is over-estimated (by 100% among the propensity scores and nearly 50% by the regression). The same pattern is seen with correlations going to <span class="math">\(-1\)</span> with the propensity score, in extreme cases, even getting the sign wrong.</p>
+<p>However, the red smear reflecting the Heckman style selection model estimates the treatment effect at nearly 1 with no sensitivity to the changing correlation.</p>
+<p>The problems with the linear regression model and the PS model are even more clear when plotting the mean and the mean squared error at each correlation level:</p>
+<pre class="r"><code>performance &lt;- group_by(results, estimator, r) %&gt;% 
+  summarize(mean = mean(estimate), lb = quantile(estimate, 0.025),
+            ub = quantile(estimate, 0.975), mse = mean((1 - estimate)^2))
+ggplot(performance, aes(x = r, y = mean, ymin = lb, ymax = ub, 
+                        color = estimator)) + 
+  geom_point() + 
+  geom_ribbon(alpha = 0.10, aes(fill = estimator)) + 
+  scale_x_continuous(&quot;Correlation&quot;) + 
+  scale_y_continuous(&quot;Mean Estimated Treatment Effect&quot;)</code></pre>
+<p><img src="../../../img/2015-04-23/fig4.png" width = 100%></p>
+
+<p>The mean estimated effect is denoted by the dots with a 95% bootstrapped confidence interval about the mean shown as the shaded region. The relative spread of the PS estimates relative to the two regression-style models is clear. The very high sensitivity to endogeneity in the treatment effect for the propensity scores models is also very visible. The linear regression model exhibits smaller CI but suffers from bias as correlation moves away from zero, if not to the same degree as the propensity scores.</p>
+<p>The mean of the Heckman style selection estimates barely deviates from the true mean of <span class="math">\(1\)</span>.</p>
+<p>The same information is visible in terms of the mean squared error.</p>
+<pre class="r"><code>ggplot(performance, aes(x = r, color = estimator, y = mse)) + 
+  geom_point() + 
+  geom_smooth(method = &quot;loess&quot;) + 
+  scale_x_continuous(&quot;Correlation&quot;) + 
+  scale_y_continuous(&quot;Mean Squared Error&quot;)</code></pre>
+<p><img src="../../../img/2015-04-23/fig5.png" width = 100%></p>
+<p>The MSE for the propensity score and least squares models both exhibit the expected parabolic shape with a global minimum at correlation of zero. The robustness of the Heckman style estimator to endogeneity in the treatment estimate.</p>
+
+<h2>Code and Data</h2>
+The result of the simulations can be downloaded <a href=https://raw.githubusercontent.com/iacobus42/blog/master/data/heckman.csv>here (2.4MB)</a> as a csv. 
+
+The script used to generate the data can be downloaded <a href=https://github.com/iacobus42/blog/blob/master/code/parHeckman.R>here</a>, although the entire script is reproduced in the above post. 
+
+<h2>Take-Away</h2>
+<p>Endogenous relationships create real problems for proper and unbiased estimation of treatment effects and standard methods for dealing with selection on the observables, such as propensity scores and simple regression, fails to adequately deal with this problem. Heckman style selection models provide one means for dealing with this problem. Although they are not a panacea, these frameworks are a valuable tool for estimation in the presence of endogeneity due to correlation between the selection and outcome processes.</p>

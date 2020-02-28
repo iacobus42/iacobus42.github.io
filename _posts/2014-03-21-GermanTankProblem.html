@@ -1,0 +1,311 @@
+---
+layout: post
+title: Frequentist German Tank Problem
+date: 2014-03-21
+niceDate: Mar 21, 2014
+lede: When you go to war, it can be useful to know how many tanks the other side has. However, they often refuse to tell you. Worse even, they will often vastly inflate production numbers. They are at war, after all. If only there was a way to convert that pesky sequential serial number to an estimate of the total number of tanks...
+tags: statistics ggplot r frequentist 
+rstats: TRUE
+id: 20141403
+hide: TRUE
+---
+
+<head>
+<!-- MathJax scripts -->
+<script type="text/javascript" src="http://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+</script>
+
+</head>
+
+<body>
+<h1>The German Tank Problem: The Frequentist Way</h1>
+
+<p>Many things are given a serial number and often that serial number, logically, 
+starts at 1 and for each new unit is increased by 1. For example, German tanks
+in World War II had several parts with serial numbers. By collecting the value
+of these numbers, Allied statisticians could produce estimates of the total 
+number of tanks produced by the Germans in a given time period. </p>
+
+<p>The idea behind this was that the serial numbers encountered in the field were 
+samples from a discrete uniform distribution starting at 1 and terminating at 
+some unknown value \( N \), where \( N \) is the true number of tanks built. The problem
+then became to use the information from the tanks captured/destroyed in 
+battle estimate the value of \( N \). </p>
+
+<p>If you had an urn with numbered balls from 1 to \( N \) and draw \( k \) balls with 
+replacement, the maximum value observed in the sample is a reasonable estimator 
+of \( N \). </p>
+
+<p>A simple simulation shows that this is the case:</p>
+
+<pre><code class="r">sampleUrn &lt;- function(k, N = 10000, r = 100) {
+    urn &lt;- 1:N
+    sampleMax &lt;- replicate(r, max(sample(urn, k, replace = TRUE)))
+    sampleMax
+}
+k &lt;- seq(1, 10000, length.out = 100)
+sampleMax &lt;- lapply(k, sampleUrn)
+sampleMax &lt;- data.frame(maxValue = do.call(c, sampleMax), k = rep(k, each = 100))
+ggplot(sampleMax, aes(x = k, y = maxValue)) + geom_point() + scale_y_continuous(&quot;Sample Maximum&quot;)
+</code></pre>
+
+<p><img src="../../../img/2014-03-21/fig1.png"></p>
+
+<p>Indeed, as suggested by the plot, the estimator is consistent for \( N \) (a formal 
+treatment is in Example 5.1.1 in Hogg, McKean and Craig 6th edition). </p>
+
+<p>However, try as they might, the Allies couldn&#39;t capture enough tanks to make
+an appeal to asymptotic theory. For fairly small sample sizes, the bias of this 
+estimator is significant. This makes sense as the sample max cannot exceed but 
+only equal the maximum value of the support and the probability of a draw 
+containing a given sample depends on the size of the draw (and the sample 
+space). </p>
+
+<p>Furthermore, they weren&#39;t sampling the tanks with replacement. The information
+about the tank&#39;s serial numbers came when the tank was captured or disabled in
+combat. Therefore, once observed, the tank can never be observed again. This
+complicates the pmf for \( M \) somewhat but provides more accurate estimation
+of \( N \) for a fixed sample than without accepting this complexity. </p>
+
+<p>Nevertheless, it is possible to produce an estimator of \( N \), \( \hat{N} \), that 
+is unbiased for small sample sizes and captures the fact that the sampling is 
+done without replacement. To start simply, </p>
+
+<p>\[ 
+E(M; k) = \sum_{m = 0}^{N} m \text{Pr}(m)
+ \]</p>
+
+<p>or the expectation of the sample maximum, \( M \), given a draw of size \( k \) is 
+simply the sum of the products of \( m \) times \( \text{Pr}(m) \) where 
+\( m \in {1, 2, \ldots} \). </p>
+
+<p>If we recognize that we have observed \( k \) tanks, it is not possible for \( N < k \) 
+because we are sampling without replacement and have seen \( k \) unique tanks, we 
+can split the summation into two parts</p>
+
+<p>\[  
+E(M; k) = \sum_{m = 0}^{k-1} m \text{Pr}(m) + \sum_{m = k}^{N} m \text{Pr}(m)
+ \]</p>
+
+<p>and since \( Pr(N = m) = 0 \) for \( m < k \), this reduces to</p>
+
+<p>\[  
+E(M; k) = \sum_{m = k}^{N} m \text{Pr}(m)
+ \]</p>
+
+<p>Since the sampling is without replacement, the pmf of \( M \) is the number of
+ways to select \( k-1 \) tanks from a set of \( m-1 \) tanks divided by the total number
+of ways to select \( k \) tanks from the total set of \( N \) tanks. After questions 
+involving cards, this is my least favorite part of math stats, but it appears 
+that this expression is given by</p>
+
+<p>\[ 
+\text{Pr}(M = m) = \frac{\binom{m-1}{k-1}}{\binom{N}{k}}
+ \]</p>
+
+<p>If we plug this in the the summation above for \( \text{Pr}(m) \), we get</p>
+
+<p>\[  
+E(M; k) = \sum_{m = k}^{N} m \frac{\binom{m-1}{k-1}}{\binom{N}{k}}
+ \]</p>
+
+<p>Which, even without expansion of the binomial coefficients into a factorial 
+form, is ugly. And so expansion is exactly what we do</p>
+
+<p>\[ 
+E(M; k) = \sum_{m = k}^{N} m \frac{\frac{(m-1)!}{(k-1)!((m-1)-(k-1))!}}{\binom{N}{k}}
+ \]</p>
+
+<p>And if we bring the \( m \) into the expression</p>
+
+<p>\[ 
+E(M; k) = \sum_{m = k}^{N} \frac{\frac{m!}{(k-1)!((m - k))!}}{\binom{N}{k}}
+ \]</p>
+
+<p>The expansion would be much nicer now if we could somehow put it back into a 
+binomial coefficient. It is close to \( \binom{m}{k} \) but we would need a 
+\( \frac{1}{k} \) multiplier. If we multiply the top and bottom of the expansion
+by \( k \), we do not change the value but we arrive at</p>
+
+<p>\[ 
+E(M; k) = \sum_{m = k}^{N} \frac{\frac{km!}{k(k-1)!((m - k))!}}{\binom{N}{k}}
+ \]</p>
+
+<p>which can be rewritten as </p>
+
+<p>\[ 
+E(M; k) = \sum_{m = k}^{N} \frac{k\binom{m}{k}}{\binom{N}{k}}
+ \]</p>
+
+<p>As far as the summation is concerned, \( k \) and \( \binom{N}{k} \) are constants
+and we can rewrite the expression as </p>
+
+<p>\[ 
+E(M; k) = \frac{k}{\binom{N}{k}} \sum_{m = k}^{N} \binom{m}{k}
+ \]</p>
+
+<p>At first glance, this doesn&#39;t look like much of an improvement. However, 
+now we just have the summation of a single binomial coefficient without any 
+multiplication inside the summation.</p>
+
+<p>Recall from earlier, the pmf of \( M \) is </p>
+
+<p>\[ 
+\text{Pr}(M = m) = \frac{\binom{m-1}{k-1}}{\binom{N}{k}}
+ \]</p>
+
+<p>By the definition of a pmf, the sum of \( \text{Pr}(M = m) \) over the support 
+of \( m \) is 1. As the values of \( \text{Pr}(m) \) are 0 for \( m < k \), this becomes</p>
+
+<p>\[  
+1 = \sum_{m = k}^{n} \frac{\binom{m-1}{k-1}}{\binom{N}{k}}
+ \]</p>
+
+<p>The \( \frac{1}{\binom{N}{k}} \) can be pulled out giving</p>
+
+<p>\[ 
+1 = \frac{1}{\binom{N}{k}} \sum_{m = k}^{n} \binom{m-1}{k-1}
+ \]</p>
+
+<p>In order for this expression to be true, </p>
+
+<p>\[ 
+\binom{N}{k} = \sum_{m = k}^{N} \binom{m-1}{k-1}
+ \]</p>
+
+<p>Now returning to the expectation, we see something similar with 
+\( \sum_{m = k}^{N} \binom{m}{k} \), however, we lack the &ldquo;\( -1 \)&rdquo; bit. If we realize
+that playing with the indices by adding or subtracting a constant doesn&#39;t 
+change the value of the expression as long as we change all the indices, lets 
+rewrite the expectation as</p>
+
+<p>\[ 
+E(M; k) = \frac{k}{\binom{N}{k}} \sum_{m = k+1}^{N+1} \binom{m - 1}{k - 1}
+ \]</p>
+
+<p>we now have an expression in the right form for this trick based on the pmf to
+apply. Taking relationship \( \binom{N}{k} = \sum_{m = k}^{N} \binom{m-1}{k-1} \)
+and substituting, we arrive at </p>
+
+<p>\[ 
+E(M; k) = \frac{k}{\binom{N}{k}} \binom{N + 1}{k + 1}
+ \]</p>
+
+<p>No more ugly summations! If we expand the binomial coefficients we get to</p>
+
+<p>\[ 
+E(M; k) = \frac{k \frac{(N + 1)!}{(k+1)!(N-k)!}} {\frac{N!}{k! (N-k)!}}
+ \]
+\[ 
+E(M; k) = \frac{k(N+1)!k!}{(k+1)!N!}
+ \]</p>
+
+<p>If we realize that \( \frac{k!}{(k+1)!} \) cancels to \( \frac{1}{k+1} \) and that 
+\( \frac{(n+1)!}{n!} \) reduces to \( n+1 \), we can write this as</p>
+
+<p>\[ 
+E(M; k) = \frac{k (N+1)}{k+1}
+ \]</p>
+
+<p>By solving this expression for \( N \),</p>
+
+<p>\[ 
+N = \frac{M k + M}{k} - 1
+ \]</p>
+
+<p>Therefore, </p>
+
+<p>\[ 
+E(N) = E\bigg(\frac{M k + M}{k} - 1\bigg) = \frac{M k + M}{k} - 1
+ \]</p>
+
+<p>Note that this can be reduced to </p>
+
+<p>\[ 
+E(N) = M \bigg(1 + \frac{1}{k}\bigg) - 1
+ \] </p>
+
+<p>for simplicity. </p>
+
+<p>Since this is an R-centric blog after all, lets check the performance of this
+estimator against using just the sample maximum for a collection of fairly 
+small samples. According to 
+<a href="http://en.wikipedia.org/wiki/German_tank_problem#Specific_data">Wikipedia</a>, 
+a reasonable number for \( N \) under the historical context is about 300. </p>
+
+<pre><code class="r">germanTankSim &lt;- function(k, N) {
+    tanks &lt;- 1:N
+    m &lt;- max(sample(tanks, k))
+    nhat &lt;- m * (1 + 1/k) - 1
+    nhat
+}
+sampleMaxEstimator &lt;- function(k, N) {
+    tanks &lt;- 1:N
+    m &lt;- max(sample(tanks, k))
+    m
+}
+
+N &lt;- 300
+k &lt;- round(seq(0.01, 1, 0.01) * N)
+k[k == 0] &lt;- 1  # doesn&#39;t make sense with k = 0
+tanks &lt;- sapply(rep(k, each = 1000), germanTankSim, N)
+tanks &lt;- data.frame(adjustedMax = tanks, k = rep(k, each = 1000))
+tanks$sampleMax &lt;- sapply(rep(k, each = 1000), sampleMaxEstimator, N)
+</code></pre>
+
+<p>If you visualize the corrected estimator&#39;s estimate as a function of the number 
+of observed tanks, you see a pretty smooth decline in the variance of the 
+estimate and a relatively unbiased estimator of \( N \). Note that I&#39;ve used
+both jitter and alpha blending to make the changes in distribution a little 
+more clear.</p>
+
+<pre><code class="r">ggplot(tanks, aes(x = k)) + geom_jitter(aes(y = adjustedMax), alpha = 0.1, position = position_jitter(width = 1, 
+    height = 1)) + geom_hline(aes(yintercept = 300), lty = 2) + scale_x_continuous(&quot;Number of Observed Tanks&quot;) + 
+    scale_y_continuous(&quot;Unbiased Estimate of Number of Total Tanks&quot;)
+</code></pre>
+
+<p><img src="../../../img/2014-03-21/fig2.png"></p>
+
+<p>Turning towards the sample maximum, it is clearly biased towards lower values 
+for the total number of tanks. Given that the probability for a draw of a very
+small size, say 10% of the population, to contain the population maximum value,
+this makes sense. The bias decays with increased numbers of observed tanks and
+converges to the true value when \( k \sim N \). </p>
+
+<pre><code class="r">ggplot(tanks, aes(x = k)) + geom_jitter(aes(y = sampleMax), alpha = 0.1, position = position_jitter(width = 1, 
+    height = 1)) + geom_hline(aes(yintercept = 300), lty = 2) + scale_x_continuous(&quot;Number of Observed Tanks&quot;) + 
+    scale_y_continuous(&quot;Sample Max&quot;)
+</code></pre>
+
+<p><img src="../../../img/2014-03-21/fig3.png"></p>
+
+<p>If we calculate the mean square error at each value of \( k \) for the two 
+estimators, we see that the adjusted estimator has a slightly more accurate 
+estimate of \( N \) than the raw sample mean. </p>
+
+<pre><code class="r">mse &lt;- function(value, N) {
+    mean((value - N)^2)
+}
+esd &lt;- aggregate(cbind(tanks$adjustedMax, tanks$sampleMax), by = list(tanks$k), 
+    mse, N = 300)
+names(esd) &lt;- c(&quot;k&quot;, &quot;adjustMax&quot;, &quot;sampleMax&quot;)
+esd &lt;- data.frame(k = rep(esd$k, 2), mse = c(esd$adjustMax, esd$sampleMax), 
+    estimator = rep(c(&quot;Adjusted&quot;, &quot;Sample Max&quot;), each = 100))
+ggplot(esd, aes(x = k, y = mse, color = estimator)) + geom_line()
+</code></pre>
+
+<p><img src="../../../img/2014-03-21/fig4.png"></p>
+
+<p>While it started out with tanks, this method can be useful for estimating a 
+large number of different maximum values based on sequential serial numbers. 
+In the absence of sales data, estimation based on serial numbers observed in the
+wild can often provide reasonable estimates of the total number of units. It may
+also spell out the <a href="https://what-if.xkcd.com/65/">end of humanity</a>. </p>
+
+<p>It also has somewhat different estimates using Bayesian approaches, specifically
+a non-finite mean for \( k = 1 \) or \( k = 2 \) without setting a prior limit on the 
+number of units. </p>
+
+<p>And most importantly, it is fun math, statistics and computing. </p>
+
+</body>
